@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'styles/reset';
+@import 'styles/typography';
+
+$primary-text-color: #ffffff;
+$primary-bg-color: #000000;
+
+@media (prefers-color-scheme: dark) {
+
+}
+
+body {
+  color: $primary-text-color;
+  background: $primary-bg-color;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff; // Default text color - adjust as needed
+
+  &.color {
+    background-color: black; // Default background color for color type
+  }
+
+  &.image {
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  &.video {
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  .content {
+    text-align: center;
+    z-index: 1;
+  }
+
+  h1 {
+    font-size: 3rem; // Adjust heading font size
+    margin-bottom: 20px;
+  }
+
+  p {
+    font-size: 1.5rem; // Adjust subheading font size
+  }
+}

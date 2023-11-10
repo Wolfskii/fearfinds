@@ -1,0 +1,63 @@
+// Import fonts from Google Fonts
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+// Font sizes
+$base-font-size: 16px;
+
+$small-font-size: 0.8rem;
+$normal-font-size: 1rem;
+$medium-font-size: 1.2rem;
+$large-font-size: 1.5rem;
+$extra-large-font-size: 2rem;
+
+// Font weights
+$regular-font-weight: 400;
+$bold-font-weight: 700;
+
+// Line heights
+$base-line-height: 1.5;
+
+// Font families
+$serif-font: 'Merriweather', serif;
+$sans-serif-font: 'Roboto', sans-serif;
+
+// Apply styles to the body or any other elements as needed
+body {
+  font-size: $normal-font-size;
+  line-height: $base-line-height;
+  font-family: $serif-font;
+  color: #333; // Adjust color as needed
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: $sans-serif-font;
+  font-weight: $bold-font-weight;
+}
+
+h1 {
+  font-size: $extra-large-font-size;
+}
+
+h2 {
+  font-size: $large-font-size;
+}
+
+h3 {
+  font-size: $medium-font-size;
+}
+
+h4 {
+  font-size: $normal-font-size;
+}
+
+h5 {
+  font-size: $small-font-size;
+}
+
+h6 {
+  font-size: $small-font-size;
+  font-style: italic;
+}
+
+// Additional styles for other elements can be added as needed
