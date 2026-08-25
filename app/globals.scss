@@ -2,61 +2,257 @@
 @tailwind components;
 @tailwind utilities;
 
-@import 'styles/reset';
-@import 'styles/typography';
+:root {
+  --header-h: 4rem;
+  --nav-h: 0px;
+  --fear-bg: #070605;
+  --fear-bone: #ead9c6;
+  color-scheme: dark;
+}
 
-$primary-text-color: #ffffff;
-$primary-bg-color: #000000;
+@media (max-width: 1023px) {
+  :root {
+    --header-h: 3.5rem;
+    --nav-h: 4.15rem;
+  }
+}
 
-@media (prefers-color-scheme: dark) {
+* {
+  box-sizing: border-box;
+}
 
+html,
+body {
+  min-height: 100%;
+  background: var(--fear-bg);
+  color: var(--fear-bone);
 }
 
 body {
-  color: $primary-text-color;
-  background: $primary-bg-color;
+  font-family: var(--font-body), Georgia, serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
-.hero {
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: #c23030;
+  color: #ead9c6;
+}
+
+.ff-app {
   position: relative;
-  overflow: hidden;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff; // Default text color - adjust as needed
+  min-height: 100dvh;
+}
 
-  &.color {
-    background-color: black; // Default background color for color type
+.ff-vignette {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background:
+    radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.55) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.35), transparent 18%, transparent 82%, rgba(0, 0, 0, 0.5));
+}
+
+.ff-grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.9'/%3E%3C/svg%3E");
+}
+
+.ff-fog {
+  pointer-events: none;
+  position: fixed;
+  inset: -10%;
+  z-index: 1;
+  opacity: 0.22;
+  filter: blur(40px);
+}
+
+.ff-fog span {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(160, 150, 140, 0.45), transparent 70%);
+  animation: drift 18s ease-in-out infinite;
+}
+
+.ff-fog span:nth-child(1) {
+  width: 55vw;
+  height: 40vw;
+  left: -10%;
+  top: 10%;
+}
+
+.ff-fog span:nth-child(2) {
+  width: 45vw;
+  height: 35vw;
+  right: -8%;
+  bottom: 5%;
+  animation-delay: -7s;
+}
+
+.ff-fog span:nth-child(3) {
+  width: 30vw;
+  height: 30vw;
+  left: 40%;
+  top: -8%;
+  animation-delay: -12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-fog span,
+  .animate-drift,
+  .animate-pulseGlow,
+  .animate-flicker {
+    animation: none !important;
   }
+}
 
-  &.image {
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+.ff-map-h {
+  height: calc(100dvh - var(--header-h) - var(--nav-h));
+}
+
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-container {
+  background: #0b0a09;
+  font-family: var(--font-body), Georgia, serif;
+  width: 100%;
+  height: 100%;
+}
+
+.leaflet-control-attribution {
+  background: rgba(7, 6, 5, 0.75) !important;
+  color: #8a8178 !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #b9a894 !important;
+}
+
+.leaflet-control-zoom a {
+  background: #181310 !important;
+  color: #ead9c6 !important;
+  border-color: #3a2a22 !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #140f0c;
+  color: #ead9c6;
+  border: 1px solid #5c2a18;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 14px;
+}
+
+.ff-pin {
+  position: relative;
+  width: 26px;
+  height: 34px;
+}
+
+.ff-pin svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.65));
+}
+
+.ff-pin-glow {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--pin, #c23030);
+  opacity: 0.35;
+  filter: blur(6px);
+  animation: pulseGlow 2.4s ease-in-out infinite;
+}
+
+.ff-pin.is-on {
+  width: 34px;
+  height: 42px;
+}
+
+.ff-pin.is-on .ff-pin-glow {
+  width: 28px;
+  height: 28px;
+  opacity: 0.7;
+}
+
+.ff-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ff-scroll::-webkit-scrollbar-thumb {
+  background: #3a2a22;
+  border-radius: 99px;
+}
+
+.ff-field {
+  @apply w-full rounded-md border border-fear-line bg-fear-bg/80 px-3 py-2.5 text-fear-bone placeholder:text-fear-mist outline-none transition focus:border-fear-ember focus:shadow-glow;
+}
+
+.ff-chip {
+  @apply inline-flex items-center gap-1 rounded-full border border-fear-line bg-fear-raised px-3 py-1 text-xs uppercase tracking-[0.14em] text-fear-mute;
+}
+
+.ff-btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-fear-ember/40 bg-gradient-to-b from-fear-rust to-[#6b1c12] px-4 py-2.5 text-sm font-medium tracking-wide text-fear-bone shadow-ember transition hover:from-fear-ember hover:to-fear-blood;
+}
+
+.ff-btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-fear-line bg-fear-panel/80 px-4 py-2.5 text-sm text-fear-bone transition hover:border-fear-ember/50 hover:bg-fear-raised;
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
-
-  &.video {
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+  50% {
+    transform: translate3d(4%, -3%, 0) scale(1.08);
   }
+}
 
-  .content {
-    text-align: center;
-    z-index: 1;
+@keyframes pulseGlow {
+  0%,
+  100% {
+    opacity: 0.45;
   }
-
-  h1 {
-    font-size: 3rem; // Adjust heading font size
-    margin-bottom: 20px;
-  }
-
-  p {
-    font-size: 1.5rem; // Adjust subheading font size
+  50% {
+    opacity: 1;
   }
 }
