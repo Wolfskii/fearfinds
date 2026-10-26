@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { CATEGORY_META } from '@/lib/categories'
 import { formatDistance, haversineKm } from '@/lib/geo'
 import { fallbackAlias, getAlias } from '@/lib/ids'
@@ -14,11 +14,24 @@ import Stars from './Stars'
 const HauntedMap = dynamic(() => import('./HauntedMap'), { ssr: false })
 
 export default function PlaceDetail({ id }: { id: string }) {
-  const { ready, places, getPlace, ratingsFor, reportsFor, addRating, addReport, savedIds, toggleSaved, removePlace, userId } =
+  const { ready, places, getPlace, ratingsFor, reportsFor, addRating, addReport, removeReport, savedIds, toggleSaved, removePlace, userId } =
     usePlaces()
   const router = useRouter()
   const place = getPlace(id)
   const [photo, setPhoto] = useState(0)
+
+  useEffect(() => setPhoto(0), [id])
+
+  // Memoized so typing in the forms below does not rebuild every map marker
+  const nearby = useMemo(() => {
+    if (!place) return []
+    return places
+      .filter((p) => p.id !== place.id)
+      .map((p) => ({ p, km: haversineKm(place, p) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 4)
+  }, [places, place])
+  const mapPlaces = useMemo(() => (place ? [place, ...nearby.map((n) => n.p)] : []), [place, nearby])
 
   if (!ready) {
     return <p className="animate-flicker px-4 py-24 text-center text-sm tracking-[0.3em] text-fear-ash">RAISING THE FOG…</p>
@@ -39,11 +52,6 @@ export default function PlaceDetail({ id }: { id: string }) {
   const ratings = ratingsFor(place.id)
   const reports = reportsFor(place.id)
   const isSeed = SEED_PLACES.some((p) => p.id === place.id)
-  const nearby = places
-    .filter((p) => p.id !== place.id)
-    .map((p) => ({ p, km: haversineKm(place, p) }))
-    .sort((a, b) => a.km - b.km)
-    .slice(0, 4)
   const saved = savedIds.includes(place.id)
   const meta = CATEGORY_META[place.category]
   const osm = `https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=16/${place.lat}/${place.lng}`
@@ -111,6 +119,7 @@ export default function PlaceDetail({ id }: { id: string }) {
           <section className="mt-10">
             <h2 className="font-display text-2xl">Rate the dread</h2>
             <RatingBox
+              key={place.id}
               onSubmit={(data) => addRating({ placeId: place.id, ...data })}
               existing={ratings.find((r) => r.userId === userId)}
             />
@@ -118,7 +127,10 @@ export default function PlaceDetail({ id }: { id: string }) {
               {ratings.map((r) => (
                 <li key={r.id} className="border-b border-fear-line/60 pb-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-fear-bone">{r.author}</span>
+                    <span className="text-sm text-fear-bone">
+                      {r.author}
+                      {r.userId === userId && <span className="ml-2 text-[10px] uppercase tracking-wider text-fear-ember">you</span>}
+                    </span>
                     <Stars value={r.scare} size="sm" />
                   </div>
                   {r.comment && <p className="mt-1 text-sm italic text-fear-mute">{r.comment}</p>}
@@ -138,7 +150,18 @@ export default function PlaceDetail({ id }: { id: string }) {
                     {r.author}
                     {r.visitedAt ? ` · visited ${r.visitedAt}` : ''}
                   </p>
-                  <p className="mt-2 text-sm leading-relaxed text-fear-mute">{r.body}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-fear-mute">{r.body}</p>
+                  {r.userId === userId && (
+                    <button
+                      type="button"
+                      className="mt-2 text-[11px] uppercase tracking-wider text-fear-blood"
+                      onClick={() => {
+                        if (confirm('Delete this witness note?')) removeReport(r.id)
+                      }}
+                    >
+                      Delete my note
+                    </button>
+                  )}
                 </li>
               ))}
               {reports.length === 0 && <p className="text-sm italic text-fear-ash">No notes yet. If you went, write what happened.</p>}
@@ -149,10 +172,12 @@ export default function PlaceDetail({ id }: { id: string }) {
         <aside className="space-y-4">
           <div className="h-56 overflow-hidden rounded-lg border border-fear-line">
             <HauntedMap
-              places={places.filter((p) => nearby.some((n) => n.p.id === p.id) || p.id === place.id)}
+              key={place.id}
+              places={mapPlaces}
               selectedId={place.id}
               onSelect={(pid) => router.push(`/places/${pid}`)}
-              flyTo={{ lat: place.lat, lng: place.lng, zoom: 11 }}
+              center={[place.lat, place.lng]}
+              zoom={11}
             />
           </div>
           <p className="text-xs text-fear-ash">
@@ -218,16 +243,20 @@ function ShareButton({ name }: { name: string }) {
       className="ff-btn-ghost flex-1"
       onClick={async () => {
         const url = window.location.href
-        try {
-          if (navigator.share) await navigator.share({ title: name, url })
-          else {
-            await navigator.clipboard.writeText(url)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: name, url })
+          } catch {
+            /* dismissed the share sheet */
           }
-        } catch {
+          return
+        }
+        try {
           await navigator.clipboard.writeText(url)
           setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          window.prompt('Copy this link', url)
         }
       }}
     >
@@ -254,22 +283,31 @@ function RatingBox({
     setAuthor(getAlias() || fallbackAlias())
   }, [])
 
+  useEffect(() => {
+    if (!done) return
+    const t = setTimeout(() => setDone(false), 2200)
+    return () => clearTimeout(t)
+  }, [done])
+
   function submit(e: FormEvent) {
     e.preventDefault()
-    onSubmit({ scare, atmosphere, credibility, comment, author })
+    onSubmit({ scare, atmosphere, credibility, comment: comment.trim(), author: author.trim() || fallbackAlias() })
     setDone(true)
   }
 
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-fear-line bg-fear-raised/70 p-4">
-      <Row label="Scare">{<Stars value={scare} onChange={setScare} />}</Row>
-      <Row label="Atmosphere">{<Stars value={atmosphere} onChange={setAtmosphere} />}</Row>
-      <Row label="How convincing">{<Stars value={credibility} onChange={setCredibility} />}</Row>
-      <input className="ff-field" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Name" />
-      <textarea className="ff-field min-h-[80px]" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Optional note" />
-      <button type="submit" className="ff-btn">
-        {existing || done ? 'Update rating' : 'Leave rating'}
-      </button>
+      <Row label="Scare">{<Stars value={scare} onChange={setScare} label="Scare" />}</Row>
+      <Row label="Atmosphere">{<Stars value={atmosphere} onChange={setAtmosphere} label="Atmosphere" />}</Row>
+      <Row label="How convincing">{<Stars value={credibility} onChange={setCredibility} label="How convincing" />}</Row>
+      <input className="ff-field" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Name" maxLength={40} aria-label="Your name" />
+      <textarea className="ff-field min-h-[80px]" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Optional note" maxLength={600} aria-label="Note" />
+      <div className="flex items-center gap-3">
+        <button type="submit" className="ff-btn">
+          {existing ? 'Update rating' : 'Leave rating'}
+        </button>
+        {done && <span role="status" className="text-xs uppercase tracking-wider text-fear-ember">Rating saved</span>}
+      </div>
     </form>
   )
 }
@@ -283,26 +321,29 @@ function ReportBox({
   const [body, setBody] = useState('')
   const [visitedAt, setVisitedAt] = useState('')
   const [author, setAuthor] = useState('Wanderer')
+  const [today, setToday] = useState('')
 
   useEffect(() => {
     setAuthor(getAlias() || fallbackAlias())
+    setToday(new Date().toISOString().slice(0, 10))
   }, [])
 
   function submit(e: FormEvent) {
     e.preventDefault()
     if (!title.trim() || !body.trim()) return
-    onSubmit({ title: title.trim(), body: body.trim(), author, visitedAt })
+    onSubmit({ title: title.trim(), body: body.trim(), author: author.trim() || fallbackAlias(), visitedAt })
     setTitle('')
     setBody('')
+    setVisitedAt('')
   }
 
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-fear-line bg-fear-raised/70 p-4">
-      <input className="ff-field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" required />
-      <textarea className="ff-field min-h-[100px]" value={body} onChange={(e) => setBody(e.target.value)} placeholder="What did you see, hear, or refuse to explain?" required />
+      <input className="ff-field" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" maxLength={120} aria-label="Title" required />
+      <textarea className="ff-field min-h-[100px]" value={body} onChange={(e) => setBody(e.target.value)} placeholder="What did you see, hear, or refuse to explain?" maxLength={4000} aria-label="What happened" required />
       <div className="grid gap-2 sm:grid-cols-2">
-        <input className="ff-field" type="date" value={visitedAt} onChange={(e) => setVisitedAt(e.target.value)} />
-        <input className="ff-field" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Name" />
+        <input className="ff-field" type="date" value={visitedAt} max={today || undefined} onChange={(e) => setVisitedAt(e.target.value)} aria-label="Date visited" />
+        <input className="ff-field" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Name" maxLength={40} aria-label="Your name" />
       </div>
       <button type="submit" className="ff-btn-ghost">
         Add witness note

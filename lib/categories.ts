@@ -47,6 +47,7 @@ export const PHENOMENA = [
   'Apparitions',
   'Footsteps',
   'Voices',
+  'Knocking',
   'Cold spots',
   'Moving objects',
   'Lights',

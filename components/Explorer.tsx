@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, CATEGORY_META, COUNTIES } from '@/lib/categories'
 import { formatDistance, haversineKm } from '@/lib/geo'
 import { usePlaces } from '@/lib/store'
@@ -29,6 +29,7 @@ export default function Explorer() {
   const router = useRouter()
   const params = useSearchParams()
   const listFirst = params.get('view') === 'list'
+  const linkedId = params.get('p')
 
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<Category | 'all'>('all')
@@ -40,6 +41,24 @@ export default function Explorer() {
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom?: number } | null>(null)
   const [locError, setLocError] = useState('')
   const [fitToken, setFitToken] = useState('')
+
+  // Follow ?p=<id> links (shared links, or a card tapped in the mobile list)
+  useEffect(() => {
+    if (!linkedId) return
+    const p = places.find((x) => x.id === linkedId)
+    if (!p) return
+    setSelectedId(p.id)
+    setFlyTo({ lat: p.lat, lng: p.lng, zoom: 12 })
+  }, [linkedId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -85,11 +104,35 @@ export default function Explorer() {
   }
 
   function dare() {
-    const pool = filtered.filter((p) => p.avgScare >= 4)
-    const pick = (pool.length ? pool : filtered)[Math.floor(Math.random() * (pool.length ? pool.length : filtered.length))]
-    if (!pick) return
-    setSelectedId(pick.id)
-    setFlyTo({ lat: pick.lat, lng: pick.lng, zoom: 12 })
+    const scary = filtered.filter((p) => p.avgScare >= 4)
+    const pool = scary.length ? scary : filtered
+    const pick = pool[Math.floor(Math.random() * pool.length)]
+    if (pick) focus(pick)
+  }
+
+  function focus(place: PlaceWithStats) {
+    // The mobile list hides the map, so jump to the map view with the pin selected
+    if (listFirst && !window.matchMedia('(min-width: 1024px)').matches) {
+      router.push(`/?p=${encodeURIComponent(place.id)}`)
+      return
+    }
+    setSelectedId(place.id)
+    setFlyTo({ lat: place.lat, lng: place.lng, zoom: 12 })
+  }
+
+  function applySort(next: typeof sort) {
+    setSort(next)
+    if (next === 'near' && !userLocation) locate()
+  }
+
+  const filtersOn = query.trim() !== '' || category !== 'all' || county !== 'all' || minScare > 0
+
+  function resetFilters() {
+    setQuery('')
+    setMinScare(0)
+    setCounty('all')
+    setCategory('all')
+    setFitToken(`reset-${Date.now()}`)
   }
 
   function applyCounty(next: string) {
@@ -102,7 +145,7 @@ export default function Explorer() {
     setFitToken(`${county}-${next}-${Date.now()}`)
   }
 
-  const rated = places.filter((p) => p.ratingCount)
+  const rated = filtered.filter((p) => p.ratingCount)
   const avg = rated.length ? rated.reduce((s, p) => s + p.avgScare, 0) / rated.length : 0
 
   const sidebar = (
@@ -114,7 +157,7 @@ export default function Explorer() {
             <h1 className="font-display text-xl text-fear-bone sm:text-2xl">Haunted map</h1>
           </div>
           <p className="text-right text-[10px] uppercase tracking-wider text-fear-ash">
-            {filtered.length} sites
+            {filtered.length} {filtered.length === 1 ? 'site' : 'sites'}
             <br />
             avg scare {Number.isFinite(avg) ? avg.toFixed(1) : '—'}
           </p>
@@ -123,6 +166,8 @@ export default function Explorer() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search names, towns, tags…"
+          aria-label="Search places"
+          type="search"
           className="ff-field mt-3 text-sm"
         />
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -136,7 +181,7 @@ export default function Explorer() {
           ))}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <select value={county} onChange={(e) => applyCounty(e.target.value)} className="ff-field text-sm">
+          <select value={county} onChange={(e) => applyCounty(e.target.value)} className="ff-field text-sm" aria-label="County">
             <option value="all">All counties</option>
             {COUNTIES.map((c) => (
               <option key={c} value={c}>
@@ -144,7 +189,7 @@ export default function Explorer() {
               </option>
             ))}
           </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="ff-field text-sm">
+          <select value={sort} onChange={(e) => applySort(e.target.value as typeof sort)} className="ff-field text-sm" aria-label="Sort">
             <option value="scare">Sort: scare</option>
             <option value="new">Sort: newest</option>
             <option value="az">Sort: name</option>
@@ -171,13 +216,25 @@ export default function Explorer() {
           <button type="button" onClick={dare} className="ff-btn-ghost px-3 py-1.5 text-xs">
             Dare me
           </button>
+          {filtersOn && (
+            <button type="button" onClick={resetFilters} className="text-xs uppercase tracking-wider text-fear-ember">
+              Clear filters
+            </button>
+          )}
         </div>
         {locError && <p className="mt-2 text-xs text-fear-blood">{locError}</p>}
       </div>
 
       <div className="ff-scroll min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {filtered.length === 0 && (
-          <p className="px-2 py-8 text-center text-sm italic text-fear-ash">Nothing in this fog. Loosen the filters or mark a new place.</p>
+          <div className="px-2 py-8 text-center text-sm italic text-fear-ash">
+            <p>Nothing in this fog. Loosen the filters or mark a new place.</p>
+            {filtersOn && (
+              <button type="button" onClick={resetFilters} className="ff-btn-ghost mt-3 px-3 py-1.5 text-xs not-italic">
+                Clear filters
+              </button>
+            )}
+          </div>
         )}
         {filtered.map((place) => (
           <PlaceCard
@@ -185,11 +242,7 @@ export default function Explorer() {
             place={place}
             selected={place.id === selectedId}
             distanceKm={userLocation ? haversineKm(userLocation, place) : undefined}
-            onSelect={() => {
-              setSelectedId(place.id)
-              setFlyTo({ lat: place.lat, lng: place.lng, zoom: 12 })
-              if (listFirst) router.replace('/?view=list')
-            }}
+            onSelect={() => focus(place)}
           />
         ))}
       </div>
@@ -220,13 +273,15 @@ export default function Explorer() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search the fog…"
+              aria-label="Search places"
+              type="search"
               className="ff-field bg-fear-bg/90 text-sm backdrop-blur"
             />
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
               <Chip on={category === 'all'} onClick={() => applyCategory('all')}>
                 All
               </Chip>
-              {CATEGORIES.slice(0, 6).map((c) => (
+              {CATEGORIES.map((c) => (
                 <Chip key={c} on={category === c} onClick={() => applyCategory(c)} color={CATEGORY_META[c].pin}>
                   {CATEGORY_META[c].label}
                 </Chip>
@@ -291,8 +346,9 @@ function Chip({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={!!on}
       className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-wider ${
-        on ? 'border-fear-ember bg-fear-ember/15 text-fear-bone' : 'border-fear-line text-fear-ash'
+        on ? 'border-fear-ember bg-fear-ember/15 text-fear-bone' : 'border-fear-line bg-fear-bg/70 text-fear-ash'
       }`}
       style={on && color ? { borderColor: color, color } : undefined}
     >

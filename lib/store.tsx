@@ -6,10 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import { SEED_PLACES, SEED_RATINGS, SEED_REPORTS } from './seed'
-import type { Place, PlaceStats, PlaceWithStats, Rating, Report } from './types'
+import { CATEGORIES, type Place, type PlaceStats, type PlaceWithStats, type Rating, type Report } from './types'
 import { fallbackAlias, getAlias, getUserId, setAlias as persistAlias, uid } from './ids'
 
 const KEYS = {
@@ -27,6 +28,52 @@ function readJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export class StorageFullError extends Error {
+  constructor() {
+    super('This browser is out of room for Fearfinds. Remove a photo or two, or clear old pins, and try again.')
+  }
+}
+
+export type Backup = {
+  app: 'fearfinds'
+  version: 1
+  exportedAt: string
+  places: Place[]
+  ratings: Rating[]
+  reports: Report[]
+  saved: string[]
+}
+
+function isPlace(x: unknown): x is Place {
+  const p = x as Place
+  return (
+    !!p &&
+    typeof p.id === 'string' &&
+    typeof p.name === 'string' &&
+    Number.isFinite(p.lat) &&
+    Number.isFinite(p.lng) &&
+    (CATEGORIES as readonly string[]).includes(p.category) &&
+    Array.isArray(p.tags) &&
+    Array.isArray(p.phenomena) &&
+    Array.isArray(p.photos)
+  )
+}
+
+function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
+  const known = new Set(current.map((x) => x.id))
+  const fresh = incoming.filter((x) => x && typeof x.id === 'string' && !known.has(x.id))
+  return { merged: [...fresh, ...current], added: fresh.length }
 }
 
 function mean(nums: number[]) {
@@ -62,9 +109,13 @@ type Ctx = {
     place: Omit<Place, 'id' | 'createdAt' | 'archived'> & { id?: string; createdBy?: string }
   ) => Place
   removePlace: (id: string) => void
+  removeReport: (id: string) => void
   addRating: (input: { placeId: string; scare: number; atmosphere: number; credibility: number; comment: string; author: string }) => void
   addReport: (input: { placeId: string; title: string; body: string; author: string; visitedAt: string }) => void
   toggleSaved: (id: string) => void
+  storageError: string
+  exportBackup: () => Backup
+  importBackup: (raw: string) => { places: number; ratings: number; reports: number }
 }
 
 const PlacesContext = createContext<Ctx | null>(null)
@@ -77,6 +128,9 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
   const [userRatings, setUserRatings] = useState<Rating[]>([])
   const [userReports, setUserReports] = useState<Report[]>([])
   const [savedIds, setSavedIds] = useState<string[]>([])
+  const [storageError, setStorageError] = useState('')
+  const extraRef = useRef<Place[]>([])
+  extraRef.current = extraPlaces
 
   useEffect(() => {
     setUserId(getUserId())
@@ -90,22 +144,22 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return
-    localStorage.setItem(KEYS.places, JSON.stringify(extraPlaces))
+    setStorageError(writeJson(KEYS.places, extraPlaces) ? '' : new StorageFullError().message)
   }, [extraPlaces, ready])
 
   useEffect(() => {
     if (!ready) return
-    localStorage.setItem(KEYS.ratings, JSON.stringify(userRatings))
+    setStorageError(writeJson(KEYS.ratings, userRatings) ? '' : new StorageFullError().message)
   }, [userRatings, ready])
 
   useEffect(() => {
     if (!ready) return
-    localStorage.setItem(KEYS.reports, JSON.stringify(userReports))
+    setStorageError(writeJson(KEYS.reports, userReports) ? '' : new StorageFullError().message)
   }, [userReports, ready])
 
   useEffect(() => {
     if (!ready) return
-    localStorage.setItem(KEYS.saved, JSON.stringify(savedIds))
+    setStorageError(writeJson(KEYS.saved, savedIds) ? '' : new StorageFullError().message)
   }, [savedIds, ready])
 
   const ratings = useMemo(() => [...SEED_RATINGS, ...userRatings], [userRatings])
@@ -128,13 +182,20 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
       createdBy: input.createdBy || alias || fallbackAlias(),
     }
-    setExtraPlaces((prev) => [place, ...prev])
+    // Write synchronously so a full quota surfaces to the form instead of failing silently
+    const next = [place, ...extraRef.current]
+    if (!writeJson(KEYS.places, next)) throw new StorageFullError()
+    setExtraPlaces(next)
     return place
   }, [alias])
 
   const removePlace = useCallback((id: string) => {
     setExtraPlaces((prev) => prev.filter((p) => p.id !== id))
     setSavedIds((prev) => prev.filter((s) => s !== id))
+  }, [])
+
+  const removeReport = useCallback((id: string) => {
+    setUserReports((prev) => prev.filter((r) => r.id !== id))
   }, [])
 
   const addRating = useCallback<Ctx['addRating']>((input) => {
@@ -172,6 +233,42 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
     setAliasState(name)
   }, [])
 
+  const exportBackup = useCallback<Ctx['exportBackup']>(
+    () => ({
+      app: 'fearfinds',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      places: extraPlaces,
+      ratings: userRatings,
+      reports: userReports,
+      saved: savedIds,
+    }),
+    [extraPlaces, userRatings, userReports, savedIds]
+  )
+
+  const importBackup = useCallback<Ctx['importBackup']>(
+    (raw) => {
+      let data: Partial<Backup>
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        throw new Error('That file is not valid JSON.')
+      }
+      if (data?.app !== 'fearfinds') throw new Error('That file is not a Fearfinds backup.')
+      const p = mergeById(extraPlaces, Array.isArray(data.places) ? data.places.filter(isPlace) : [])
+      const r = mergeById(userRatings, Array.isArray(data.ratings) ? data.ratings : [])
+      const n = mergeById(userReports, Array.isArray(data.reports) ? data.reports : [])
+      const saved = Array.from(new Set([...savedIds, ...(Array.isArray(data.saved) ? data.saved : [])]))
+      if (!writeJson(KEYS.places, p.merged)) throw new StorageFullError()
+      setExtraPlaces(p.merged)
+      setUserRatings(r.merged)
+      setUserReports(n.merged)
+      setSavedIds(saved)
+      return { places: p.added, ratings: r.added, reports: n.added }
+    },
+    [extraPlaces, userRatings, userReports, savedIds]
+  )
+
   const value = useMemo<Ctx>(
     () => ({
       ready,
@@ -188,9 +285,13 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
       reportsFor,
       addPlace,
       removePlace,
+      removeReport,
       addRating,
       addReport,
       toggleSaved,
+      storageError,
+      exportBackup,
+      importBackup,
     }),
     [
       ready,
@@ -207,9 +308,13 @@ export function PlacesProvider({ children }: { children: React.ReactNode }) {
       reportsFor,
       addPlace,
       removePlace,
+      removeReport,
       addRating,
       addReport,
       toggleSaved,
+      storageError,
+      exportBackup,
+      importBackup,
     ]
   )
 

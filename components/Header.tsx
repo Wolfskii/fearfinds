@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { usePlaces } from '@/lib/store'
 
 const links = [
   { href: '/', label: 'Map' },
@@ -12,6 +13,7 @@ const links = [
 
 export default function Header() {
   const path = usePathname()
+  const { storageError } = usePlaces()
 
   return (
     <header className="sticky top-0 z-30 h-[var(--header-h)] border-b border-fear-line/80 bg-fear-bg/85 backdrop-blur-md">
@@ -30,7 +32,7 @@ export default function Header() {
 
         <nav className="hidden items-center gap-1 md:flex">
           {links.map((l) => {
-            const on = path === l.href
+            const on = l.href === '/' ? path === '/' : path.startsWith(l.href)
             return (
               <Link
                 key={l.href}
@@ -50,6 +52,11 @@ export default function Header() {
         </Link>
       </div>
       <div className="h-px w-full bg-gradient-to-r from-transparent via-fear-blood/70 to-transparent" />
+      {storageError && (
+        <p role="alert" className="border-b border-fear-blood/50 bg-fear-bg/95 px-4 py-2 text-center text-xs text-fear-blood">
+          {storageError}
+        </p>
+      )}
     </header>
   )
 }

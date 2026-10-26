@@ -2,16 +2,18 @@
 
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { CATEGORIES, CATEGORY_META, COUNTIES, PHENOMENA } from '@/lib/categories'
 import { compressImage } from '@/lib/image'
 import { fallbackAlias, getAlias } from '@/lib/ids'
-import { usePlaces } from '@/lib/store'
+import { StorageFullError, usePlaces } from '@/lib/store'
 import type { Category } from '@/lib/types'
 
 const HauntedMap = dynamic(() => import('./HauntedMap'), { ssr: false })
 
 type Hit = { lat: number; lng: number; label: string }
+
+const MAX_PHOTOS = 3
 
 export default function AddPlaceForm() {
   const { addPlace, places } = usePlaces()
@@ -20,6 +22,7 @@ export default function AddPlaceForm() {
   const [category, setCategory] = useState<Category>('haunted')
   const [county, setCounty] = useState('Stockholm')
   const [locality, setLocality] = useState('')
+  const [localityTouched, setLocalityTouched] = useState(false)
   const [summary, setSummary] = useState('')
   const [description, setDescription] = useState('')
   const [access, setAccess] = useState('Public viewing from roads / official sites only.')
@@ -29,39 +32,50 @@ export default function AddPlaceForm() {
   const [picked, setPicked] = useState<{ lat: number; lng: number } | null>(null)
   const [search, setSearch] = useState('')
   const [hits, setHits] = useState<Hit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchNote, setSearchNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom?: number } | null>(null)
 
   const [author, setAuthor] = useState('Wanderer')
+  const pickSeq = useRef(0)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setAuthor(getAlias() || fallbackAlias())
   }, [])
 
   async function lookup() {
-    if (!search.trim()) return
-    const res = await fetch(`/api/geocode?q=${encodeURIComponent(search)}`)
-    if (!res.ok) {
-      setError('Could not search the map. Drop a pin instead.')
-      return
+    if (!search.trim() || searching) return
+    setSearching(true)
+    setSearchNote('')
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(search.trim())}`)
+      if (!res.ok) throw new Error()
+      const data = (await res.json()) as Hit[]
+      setHits(data)
+      if (data.length === 0) setSearchNote('No match. Try a town name, or click the map to drop the pin by hand.')
+    } catch {
+      setHits([])
+      setSearchNote('Could not search the map right now. Drop a pin by clicking instead.')
+    } finally {
+      setSearching(false)
     }
-    const data = (await res.json()) as Hit[]
-    setHits(data)
   }
 
   async function pick(lat: number, lng: number) {
+    const seq = ++pickSeq.current
     setPicked({ lat, lng })
     setFlyTo({ lat, lng, zoom: 13 })
     try {
       const res = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`)
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.locality && !locality) setLocality(data.locality)
-      if (data.county) {
-        const match = COUNTIES.find((c) => data.county.includes(c) || c.includes(String(data.county).replace('s län', '')))
-        if (match) setCounty(match)
-      }
+      if (!res.ok || seq !== pickSeq.current) return
+      const data = (await res.json()) as { locality?: string; county?: string; countryCode?: string }
+      if (seq !== pickSeq.current) return
+      if (data.locality && !localityTouched) setLocality(data.locality)
+      const match = matchCounty(data.county, data.countryCode)
+      if (match) setCounty(match)
     } catch {
       /* pin still counts */
     }
@@ -70,15 +84,20 @@ export default function AddPlaceForm() {
   async function onFiles(files: FileList | null) {
     if (!files?.length) return
     setError('')
+    const room = MAX_PHOTOS - photos.length
+    if (files.length > room) setError(`Only ${MAX_PHOTOS} photos per place — kept the first ${room}.`)
     try {
       const next: string[] = []
-      for (const file of Array.from(files).slice(0, 3 - photos.length)) {
+      for (const file of Array.from(files).slice(0, room)) {
         if (!file.type.startsWith('image/')) continue
         next.push(await compressImage(file))
       }
-      setPhotos((prev) => [...prev, ...next].slice(0, 3))
+      setPhotos((prev) => [...prev, ...next].slice(0, MAX_PHOTOS))
     } catch {
       setError('Could not read that image.')
+    } finally {
+      // Let the same file be picked again after removing it
+      if (fileInput.current) fileInput.current.value = ''
     }
   }
 
@@ -94,21 +113,28 @@ export default function AddPlaceForm() {
       return
     }
     setBusy(true)
-    const place = addPlace({
-      name: name.trim(),
-      lat: picked.lat,
-      lng: picked.lng,
-      county,
-      locality: locality.trim(),
-      category,
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-      summary: summary.trim() || description.trim().slice(0, 140),
-      description: description.trim(),
-      phenomena,
-      access: access.trim(),
-      photos,
-      createdBy: author.trim() || fallbackAlias(),
-    })
+    let place
+    try {
+      place = addPlace({
+        name: name.trim(),
+        lat: picked.lat,
+        lng: picked.lng,
+        county,
+        locality: locality.trim(),
+        category,
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        summary: summary.trim() || description.trim().slice(0, 140),
+        description: description.trim(),
+        phenomena,
+        access: access.trim(),
+        photos,
+        createdBy: author.trim() || fallbackAlias(),
+      })
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof StorageFullError ? err.message : 'Could not save this place.')
+      return
+    }
     router.push(`/places/${place.id}`)
   }
 
@@ -143,7 +169,15 @@ export default function AddPlaceForm() {
           </Field>
         </div>
         <Field label="Town / locality">
-          <input className="ff-field" value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Village, city, island…" />
+          <input
+            className="ff-field"
+            value={locality}
+            onChange={(e) => {
+              setLocality(e.target.value)
+              setLocalityTouched(true)
+            }}
+            placeholder="Village, city, island…"
+          />
         </Field>
         <Field label="Short hook">
           <input className="ff-field" value={summary} onChange={(e) => setSummary(e.target.value)} maxLength={160} placeholder="One line of dread" />
@@ -177,13 +211,31 @@ export default function AddPlaceForm() {
         <Field label="Tags (comma separated)">
           <input className="ff-field" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="overnight, grey lady, cellar" />
         </Field>
-        <Field label="Photos (up to 3, stored in this browser)">
-          <input type="file" accept="image/*" multiple onChange={(e) => onFiles(e.target.files)} className="text-sm text-fear-mute" />
+        <Field label={`Photos (up to ${MAX_PHOTOS}, stored in this browser)`}>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            multiple
+            disabled={photos.length >= MAX_PHOTOS}
+            onChange={(e) => onFiles(e.target.files)}
+            className="text-sm text-fear-mute disabled:opacity-50"
+          />
           {photos.length > 0 && (
             <div className="mt-2 grid grid-cols-3 gap-2">
               {photos.map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={i} src={src} alt="" className="h-20 w-full rounded object-cover" />
+                <div key={i} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt={`Photo ${i + 1}`} className="h-20 w-full rounded object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
+                    className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/75 text-xs text-fear-bone hover:text-fear-blood"
+                    aria-label={`Remove photo ${i + 1}`}
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -208,14 +260,15 @@ export default function AddPlaceForm() {
                 }
               }}
             />
-            <button type="button" onClick={lookup} className="ff-btn-ghost shrink-0">
-              Search
+            <button type="button" onClick={lookup} disabled={searching} className="ff-btn-ghost shrink-0">
+              {searching ? 'Searching…' : 'Search'}
             </button>
           </div>
+          {searchNote && <p className="mt-2 text-xs text-fear-ash">{searchNote}</p>}
           {hits.length > 0 && (
             <ul className="mt-2 divide-y divide-fear-line rounded-md border border-fear-line">
-              {hits.map((h) => (
-                <li key={h.label}>
+              {hits.map((h, i) => (
+                <li key={`${h.lat},${h.lng},${i}`}>
                   <button
                     type="button"
                     className="w-full px-3 py-2 text-left text-sm text-fear-mute hover:bg-fear-panel hover:text-fear-bone"
@@ -261,6 +314,14 @@ export default function AddPlaceForm() {
       </div>
     </form>
   )
+}
+
+function matchCounty(raw?: string, countryCode?: string): string | undefined {
+  if (countryCode && countryCode !== 'se') return 'Other'
+  if (!raw) return undefined
+  // Nominatim returns e.g. "Stockholms län" or "Västra Götalands län"
+  const name = raw.replace(/\s+län$/i, '').replace(/s$/, '')
+  return COUNTIES.find((c) => c === name || c === raw || raw.startsWith(c))
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

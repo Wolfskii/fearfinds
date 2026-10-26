@@ -73,6 +73,8 @@ export default function HauntedMap({
   userLocation,
   flyTo,
   fitToken,
+  center = SWEDEN_CENTER,
+  zoom = SWEDEN_ZOOM,
 }: {
   places: PlaceWithStats[]
   selectedId: string | null
@@ -83,6 +85,8 @@ export default function HauntedMap({
   userLocation?: { lat: number; lng: number } | null
   flyTo?: { lat: number; lng: number; zoom?: number } | null
   fitToken?: string
+  center?: [number, number]
+  zoom?: number
 }) {
   const icons = useMemo(() => {
     const map: Record<string, { off: L.DivIcon; on: L.DivIcon }> = {}
@@ -97,11 +101,10 @@ export default function HauntedMap({
 
   return (
     <MapContainer
-      center={SWEDEN_CENTER}
-      zoom={SWEDEN_ZOOM}
+      center={center}
+      zoom={zoom}
       scrollWheelZoom
       className="h-full w-full"
-      zoomControl={!picker}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -114,18 +117,23 @@ export default function HauntedMap({
           icon={icons[place.id]?.[place.id === selectedId ? 'on' : 'off']}
           eventHandlers={{ click: () => onSelect(place.id) }}
           zIndexOffset={place.id === selectedId ? 1000 : 0}
+          interactive={!picker}
+          keyboard={!picker}
+          title={place.name}
         >
-          <Popup>
-            <div className="min-w-[160px]">
-              <div className="font-display text-sm">{place.name}</div>
-              <div className="mt-0.5 text-[11px] text-fear-ash">
-                {place.locality} · scare {place.avgScare ? place.avgScare.toFixed(1) : '—'}
+          {!picker && (
+            <Popup>
+              <div className="min-w-[160px]">
+                <div className="font-display text-sm">{place.name}</div>
+                <div className="mt-0.5 text-[11px] text-fear-ash">
+                  {place.locality} · scare {place.avgScare ? place.avgScare.toFixed(1) : '—'}
+                </div>
+                <Link href={`/places/${place.id}`} className="mt-2 inline-block text-[11px] uppercase tracking-wider text-fear-ember">
+                  Open story
+                </Link>
               </div>
-              <Link href={`/places/${place.id}`} className="mt-2 inline-block text-[11px] uppercase tracking-wider text-fear-ember">
-                Open story
-              </Link>
-            </div>
-          </Popup>
+            </Popup>
+          )}
         </Marker>
       ))}
       {userLocation && (

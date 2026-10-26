@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { CATEGORY_META } from '@/lib/categories'
+import { formatDistance } from '@/lib/geo'
 import type { PlaceWithStats } from '@/lib/types'
 import Stars from './Stars'
 
@@ -46,12 +47,12 @@ export default function PlaceCard({
               {place.locality}
               {place.locality ? ', ' : ''}
               {place.county}
-              {distanceKm != null ? ` · ${distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`}` : ''}
+              {distanceKm != null ? ` · ${formatDistance(distanceKm)}` : ''}
             </p>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <Stars value={place.avgScare} size="sm" label="Scare" />
-            <span className="text-[10px] uppercase tracking-wider text-fear-mist">{place.ratingCount} rates</span>
+            <span className="text-[10px] uppercase tracking-wider text-fear-mist">{place.ratingCount} {place.ratingCount === 1 ? 'rating' : 'ratings'}</span>
           </div>
         </div>
       </button>
